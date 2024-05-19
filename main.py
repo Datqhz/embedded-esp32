@@ -121,7 +121,7 @@ def receive_data():
                 }
             )
             response = requests.post(
-                'http://192.168.1.20:3000/api/add-history',
+                'http://192.168.1.15:3000/api/add-history',
                 data=multipart_data,
                 headers={'Content-Type': multipart_data.content_type}
             )
@@ -139,8 +139,9 @@ def receive_data():
     except Exception as e:
         # Trả về lỗi nếu có bất kỳ lỗi nào xảy ra trong quá trình xử lý dữ liệu
         response = {'error': str(e)}
+        print('error '+  str(e))
         return jsonify(response), 500
 
 if __name__ == '__main__':
-    app.run(host='192.168.1.20',port=5000)
+    app.run(host='192.168.1.15',port=5000)
 

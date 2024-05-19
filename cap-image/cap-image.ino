@@ -4,7 +4,6 @@
 #include "soc/rtc_cntl_reg.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <Arduino_FreeRTOS.h>
 
 #include <TensorFlowLite_ESP32.h>
 #include "c_model.h"
@@ -16,17 +15,18 @@
 
 const char* ssid = "Q01";
 const char* password = "0832367943";
-String serverName = "192.168.1.20";      // Flask upload route
+String serverName = "192.168.1.15";      // Flask upload route
 
 const int serverPort = 5000;
 
 // const int timerInterval = 500;    // time (milliseconds) between each HTTP POST image
 // unsigned long previousMillis = 0; 
 
-bool predictFlag = true;
-bool notifyFlag = false;
+boolean predictFlag = true;
+boolean notifyFlag = false;
+int relay = 2;
 
-int person_idx;
+int person_idx = -1 ;
 
 WiFiClient client;
 
@@ -75,8 +75,8 @@ void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); 
   Serial.begin(115200);
 
-  pinMode(2, OUTPUT) // relay
-  digitalWrite(2, LOW)
+  // pinMode(relay, OUTPUT) // relay
+  // digitalWrite(relay, LOW)
 
   WiFi.mode(WIFI_STA);
   Serial.println();
@@ -170,7 +170,7 @@ void setup() {
   xTaskCreatePinnedToCore (
     TaskPredict,     // Function to implement the task
     "Predict",   // Name of the task
-    2048,      // Stack size in bytes
+    3000,      // Stack size in bytes
     NULL,      // Task input parameter
     0,         // Priority of the task
     NULL,      // Task handle.
@@ -180,7 +180,7 @@ void setup() {
   xTaskCreatePinnedToCore (
     TaskNotify,     // Function to implement the task
     "Notify",   // Name of the task
-    1000,      // Stack size in bytes
+    2000,      // Stack size in bytes
     NULL,      // Task input parameter
     0,         // Priority of the task
     NULL,      // Task handle.
@@ -430,127 +430,126 @@ String predict2d(){
 }
 
 void notify() {
-  WiFiClient client;
-  if (!client.connect(serverAddress, serverPort)) {
-    Serial.println("Connection to server failed.");
-    return;
+  if (client.connect(serverName.c_str(), serverPort)) {
+    Serial.println("Connection successful!");  
+    // Tạo JSON
+    StaticJsonDocument<200> doc;
+    doc["idx"] = person_idx;
+
+    // Serialize JSON thành chuỗi
+    String jsonString;
+    serializeJson(doc, jsonString);
+
+    // Gửi yêu cầu POST
+    client.print("POST /save-open-door HTTP/1.1\r\n");
+    client.print("Host: ");
+    client.print(serverName);
+    client.print("\r\n");
+    client.print("Content-Type: application/json\r\n");
+    client.print("Content-Length: ");
+    client.print(jsonString.length());
+    client.print("\r\n\r\n");
+    client.print(jsonString);
+
+    Serial.println("Request sent to server.");
+
+    // Đọc và in phản hồi từ server
+    while (client.available()) {
+      String line = client.readStringUntil('\r');
+      Serial.print(line);
+    }
+  }else {
+    Serial.println("Connection fail!");  
   }
-
-  // Tạo JSON
-  StaticJsonDocument<200> doc;
-  doc["idx"] = person_idx;
-
-  // Serialize JSON thành chuỗi
-  String jsonString;
-  serializeJson(doc, jsonString);
-
-  // Gửi yêu cầu POST
-  client.print("POST /save-open-door HTTP/1.1\r\n");
-  client.print("Host: ");
-  client.print(serverAddress);
-  client.print("\r\n");
-  client.print("Content-Type: application/json\r\n");
-  client.print("Content-Length: ");
-  client.print(jsonString.length());
-  client.print("\r\n\r\n");
-  client.print(jsonString);
-
-  Serial.println("Request sent to server.");
-
-  // Đọc và in phản hồi từ server
-  while (client.available()) {
-    String line = client.readStringUntil('\r');
-    Serial.print(line);
-  }
-  predictFlag = true;
-  notifyFlag = false;
 }
 // send image to flask server and receive image after process(1d)
-// String predict1d(){
-//   if (client.connect(serverName.c_str(), serverPort)) {
-//       client.println("GET /image_1d HTTP/1.1");
-//       client.println("Host: " + serverName);
-//       client.println();
+String predict1d(){
+  if (client.connect(serverName.c_str(), serverPort)) {
+      client.println("GET /image_1d HTTP/1.1");
+      client.println("Host: " + serverName);
+      client.println();
 
-//       // Đọc phản hồi từ máy chủ và lưu hình ảnh vào bộ nhớ đệm ESP32-CAM
-//       while (client.connected()) {
-//         String line = client.readStringUntil('\n');
-//         if (line == "\r") {
-//           // headers are finished, time to get the response
-//           break;
-//         }
-//       }
-//       String response = "";
-//       while (client.available()) {
-//         response += client.readStringUntil('\n');
-//       }
-//       const size_t capacity = JSON_ARRAY_SIZE(144) + JSON_OBJECT_SIZE(2);
-//       DynamicJsonDocument doc(capacity);
-//       deserializeJson(doc, response);
-//       JsonArray array = doc.as<JsonArray>();
-//       // Sử dụng bộ nhớ heap thay vì stack
-//       float* img_1d = (float*)malloc(144 * sizeof(float));
-//       if (img_1d == nullptr) {
-//         Serial.println("Failed to allocate memory for img_1d");
-//         return "error";
-//       }
+      // Đọc phản hồi từ máy chủ và lưu hình ảnh vào bộ nhớ đệm ESP32-CAM
+      while (client.connected()) {
+        String line = client.readStringUntil('\n');
+        if (line == "\r") {
+          // headers are finished, time to get the response
+          break;
+        }
+      }
+      String response = "";
+      while (client.available()) {
+        response += client.readStringUntil('\n');
+      }
+      const size_t capacity = JSON_ARRAY_SIZE(144) + JSON_OBJECT_SIZE(2);
+      DynamicJsonDocument doc(capacity);
+      deserializeJson(doc, response);
+      JsonArray array = doc.as<JsonArray>();
+      // Sử dụng bộ nhớ heap thay vì stack
+      float* img_1d = (float*)malloc(144 * sizeof(float));
+      if (img_1d == nullptr) {
+        Serial.println("Failed to allocate memory for img_1d");
+        return "error";
+      }
 
-//       for (int i = 0; i < 144; i++) {
-//         img_1d[i] = array[i];
-//         Serial.print("img_1d[");
-//         Serial.print(i);
-//         Serial.print("] = ");
-//         Serial.println(img_1d[i]);
-//       }
+      for (int i = 0; i < 144; i++) {
+        img_1d[i] = array[i];
+        Serial.print("img_1d[");
+        Serial.print(i);
+        Serial.print("] = ");
+        Serial.println(img_1d[i]);
+      }
 
-//       float (*image_3d)[144][1] = (float(*)[144][1])malloc(sizeof(float) * 1 * 144 * 1);
-//       if (image_3d == nullptr) {
-//         Serial.println("Failed to allocate memory for image_3d");
-//         free(img_1d); // Giải phóng bộ nhớ img_1d trước khi trả về
-//         return "error";
-//       }
+      float (*image_3d)[144][1] = (float(*)[144][1])malloc(sizeof(float) * 1 * 144 * 1);
+      if (image_3d == nullptr) {
+        Serial.println("Failed to allocate memory for image_3d");
+        free(img_1d); // Giải phóng bộ nhớ img_1d trước khi trả về
+        return "error";
+      }
 
-//       for (int i = 0; i < 144; ++i) {
-//         (*image_3d)[i][0] = img_1d[i];
-//       }
+      for (int i = 0; i < 144; ++i) {
+        (*image_3d)[i][0] = img_1d[i];
+      }
 
-//       TfLiteTensor* input = interpreter->input(0);
-//       memcpy(input->data.f, image_3d, sizeof(float) * 1 * 144 * 1);
-//       // Print the data in the input tensor
-//       for (int i = 0; i < 144; ++i) {
-//         Serial.print("input data[");
-//         Serial.print(i);
-//         Serial.print("] = ");
-//         Serial.println(input->data.f[i]);
-//       }
-//       // Run inference
-//           // Run inference
-//       TfLiteStatus invoke_status = interpreter->Invoke();
-//       if (invoke_status != kTfLiteOk) {
-//         error_reporter->Report("Invoke failed on input: %f\n", input->data.f[0]);
-//         free(img_1d); // Giải phóng bộ nhớ img_1d trước khi trả về
-//         free(image_3d); // Giải phóng bộ nhớ image_3d trước khi trả về
-//         return "error";
-//       }
-//       TfLiteTensor* output = interpreter->output(0);
-//       for (int i = 0; i < output->bytes / sizeof(float); ++i) {
-//         Serial.print("output data[");
-//         Serial.print(i);
-//         Serial.print("] = ");
-//         Serial.println(output->data.f[i]);
-//       }
-//     free(img_1d); // Giải phóng bộ nhớ img_1d sau khi sử dụng
-//     free(image_3d);
-//     }else {
-//       return "error";
-//     }
-// }
+      TfLiteTensor* input = interpreter->input(0);
+      memcpy(input->data.f, image_3d, sizeof(float) * 1 * 144 * 1);
+      // Print the data in the input tensor
+      for (int i = 0; i < 144; ++i) {
+        Serial.print("input data[");
+        Serial.print(i);
+        Serial.print("] = ");
+        Serial.println(input->data.f[i]);
+      }
+      // Run inference
+          // Run inference
+      TfLiteStatus invoke_status = interpreter->Invoke();
+      if (invoke_status != kTfLiteOk) {
+        error_reporter->Report("Invoke failed on input: %f\n", input->data.f[0]);
+        free(img_1d); // Giải phóng bộ nhớ img_1d trước khi trả về
+        free(image_3d); // Giải phóng bộ nhớ image_3d trước khi trả về
+        return "error";
+      }
+      TfLiteTensor* output = interpreter->output(0);
+      for (int i = 0; i < output->bytes / sizeof(float); ++i) {
+        Serial.print("output data[");
+        Serial.print(i);
+        Serial.print("] = ");
+        Serial.println(output->data.f[i]);
+      }
+    free(img_1d); // Giải phóng bộ nhớ img_1d sau khi sử dụng
+    free(image_3d);
+    }else {
+      return "error";
+    }
+}
 
 void TaskPredict(void *pvParameters) {
     while (true) {
         if(predictFlag){
           predict2d();
           delay(500); // sau mỗi 0.5 giây thì task được lặp lại
+        }else {
+          delay(100);
         }
        
     }
@@ -558,8 +557,14 @@ void TaskPredict(void *pvParameters) {
 void TaskNotify(void *pvParameters) {
     while (true) {
         if(notifyFlag){
+          // digitalWrite(relay, HIGH)
           notify();
-          delay(5000) // tạm dừng task 5s sau khi thông báo đến server
+          delay(5000); // tạm dừng task 5s sau khi thông báo đến server
+          predictFlag = true;
+          notifyFlag = false;
+          // digitalWrite(relay, LOW)
+        }else {
+          delay(500);
         }
     }
 }
