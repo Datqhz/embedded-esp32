@@ -24,7 +24,7 @@ const int serverPort = 5000;
 
 boolean predictFlag = true;
 boolean notifyFlag = false;
-int relay = 2;
+int relay = 12;
 
 int person_idx = -1 ;
 
@@ -75,8 +75,8 @@ void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); 
   Serial.begin(115200);
 
-  // pinMode(relay, OUTPUT) // relay
-  // digitalWrite(relay, LOW)
+  pinMode(relay, OUTPUT); // relay
+  digitalWrite(relay, LOW);
 
   WiFi.mode(WIFI_STA);
   Serial.println();
@@ -557,12 +557,12 @@ void TaskPredict(void *pvParameters) {
 void TaskNotify(void *pvParameters) {
     while (true) {
         if(notifyFlag){
-          // digitalWrite(relay, HIGH)
+          digitalWrite(relay, HIGH);
           notify();
           delay(5000); // tạm dừng task 5s sau khi thông báo đến server
           predictFlag = true;
           notifyFlag = false;
-          // digitalWrite(relay, LOW)
+          digitalWrite(relay, LOW);
         }else {
           delay(500);
         }
